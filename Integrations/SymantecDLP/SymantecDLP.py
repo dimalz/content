@@ -9,7 +9,7 @@ from requests.auth import AuthBase, HTTPBasicAuth
 from zeep import helpers
 from zeep.cache import SqliteCache
 from datetime import datetime
-from typing import Dict, Tuple, List, Optional, Union, AnyStr
+from typing import Dict, Tuple
 import urllib3
 
 # Disable insecure warnings
@@ -50,6 +50,11 @@ def incident_attributes_transformer(attributes: dict) -> dict:
 
 
 def parse_component(raw_components: list) -> list:
+    """
+    This function parses a list of components into a list of context data
+    :param raw_components: the components list before parsing
+    :return: the parsed list
+    """
     components = list()
     for raw_component in raw_components:
         unfiltered_component: dict = {
@@ -63,108 +68,6 @@ def parse_component(raw_components: list) -> list:
         if component:
             components.append(component)
     return components
-
-
-''' CONTEXT STANDARDS GENERATORS '''
-
-
-def incident_details_context_standards_output_generator(incident: dict) -> dict:
-    """
-    This function retrives the needed data from an incident according to the context standards.
-    :param incident: the incident data
-    :return: a dict with the context standards data
-    """
-    return {}
-
-
-''' CONTEXT TRANSFORMERS '''
-
-
-def incident_details_context_transformer(raw_incident: dict) -> dict:
-    """
-    This function retrives data from the raw incident into context path locations
-    :param raw_incident: the dict representing the raw response of incident
-    :return: a dict with context paths and their corresponding value
-    """
-    return {}
-
-
-def incident_violations_context_transformer(raw_incident_violations: dict) -> dict:
-    """
-    This function retrives data from the raw incident violations into context path locations
-    :param raw_incident_violations: the dict representing the raw response of incident violations
-    :return: a dict with context paths and their corresponding value
-    """
-    return {}
-
-
-def incident_binaries_context_transformer(raw_incident_binaries: dict) -> dict:
-    """
-    This function retrives data from the raw incident into context path locations
-    :param raw_incident_binaries: the dict representing the raw response of incident binaries
-    :return: a dict with context paths and their corresponding value
-    """
-    return {
-        'ID': raw_incident_binaries.get('incidentId'),
-        'OriginalMessage': raw_incident_binaries.get('originalMessage'),
-        'Component': parse_component(raw_incident_binaries.get('Component')),
-        'LongID': raw_incident_binaries.get('incidentLongId')
-    }
-
-
-''' HUMAN READABLE OUTPUT GENERATORS '''
-
-
-def incident_details_human_readable_output_generator(incident: dict) -> str:
-    """
-    This function gets all relevant data for the human readable output of a specific incident.
-    :param incident: the incident data
-    :return: a markdown table of the outputs
-    """
-    headers = list()
-    outputs = list()
-    return tableToMarkdown('Symantec DLP incident {incident_id}', outputs, headers=headers, removeNull=True)
-
-
-# TODO: Check if all fields are needed
-def update_incidents_human_readable_output_generator(raw_response: dict) -> str:
-    """
-    This function creates relevant data for the human readable output of incidents update response.
-    :param raw_response: the incidents update data
-    :return: a markdown table of the outputs
-    """
-    headers: list = ['Batch ID', 'Inaccessible Incident Long ID', 'Inaccessible Incident ID', 'Status Code']
-    outputs = {
-        'Batch ID': raw_response.get('batchId'),
-        'Inaccessible Incident Long ID': raw_response.get('InaccessibleIncidentLongId'),
-        'Inaccessible Incident ID': raw_response.get('InaccessibleIncidentId'),
-        'Status Code': raw_response.get('statusCode')
-    }
-    return tableToMarkdown('Symantec DLP incidents {incident_id} update', outputs, headers=headers, removeNull=True)
-
-
-def incident_binaries_human_readable_output_generator(incident_binaries: dict) -> str:
-    """
-    This function gets all relevant data for the human readable output of a specific incident binaries.
-    :param incident_binaries: the incident binaries data
-    :return: a markdown table of the outputs
-    """
-    headers = list()
-    outputs = list()
-    return tableToMarkdown('Symantec DLP incident {incident_id} binaries', outputs, headers=headers,
-                           removeNull=True)
-
-
-def incident_violations_human_readable_output_generator(incident_violations: dict) -> str:
-    """
-    This function gets all relevant data for the human readable output of a specific incident violations.
-    :param incident_violations: the incident violations data
-    :return: a markdown table of the outputs
-    """
-    headers = list()
-    outputs = list()
-    return tableToMarkdown('Symantec DLP incident {incident_id} violations', outputs, headers=headers,
-                           removeNull=True)
 
 
 def myconverter(o):
@@ -185,25 +88,26 @@ def test_module():
 def get_incident_details_command(client: Client, args: Dict) -> Tuple[str, Dict, Dict]:
     incident_id: str = args.get('incident_id', '')
 
-    # TODO: Check for the LongId issue - if needs a param that check for the version and than decides
     raw_incident: Dict = client.service.incidentDetail(
-        incidentId=incident_id,
         incidentLongId=incident_id,
         includeHistory=True,
         includeViolations=True
     )
 
     human_readable: str
-    entry_context = dict()
-    raw_response = dict()
+    entry_context: dict = {}
+    raw_response: dict = {}
 
     if raw_incident:
         serialized_incident = helpers.serialize_object(raw_incident[0])
         raw_response = serialized_incident
-        incident: dict = {key: val for key, val in incident_details_context_transformer(serialized_incident).items() if val}
-        human_readable: str = incident_details_human_readable_output_generator(incident)
-        context_standard_outputs: dict = incident_details_context_standards_output_generator(incident)
-        entry_context: dict = {
+        # TODO: Transform into context & filter empty values
+        incident: dict = serialized_incident
+        # TODO: Add headers to tableToMarkdown
+        human_readable = tableToMarkdown('Symantec DLP incident {incident_id}', incident, removeNull=True)
+        # TODO: Transform into context standards & filter empty values
+        context_standard_outputs: dict = incident
+        entry_context = {
             'SymantecDLP': {
                 'Incident(val.ID === obj.ID)': incident
             }
@@ -229,17 +133,17 @@ def list_incidents_command(client: Client, args: Dict) -> Tuple[str, Dict, Dict]
     )
 
     human_readable: str
-    entry_context = dict()
-    raw_response = dict()
+    entry_context: dict = {}
+    raw_response: dict = {}
 
     if raw_incidents:
         serialized_incidents: Dict = helpers.serialize_object(raw_incidents)
-        raw_response: Dict = serialized_incidents
+        raw_response = serialized_incidents
         incidents = [{
             'ID': incident_id
         } for incident_id in serialized_incidents.get('incidentId', '')]
-        human_readable: str = tableToMarkdown(f'Symantec DLP incidents', incidents, removeNull=True)
-        entry_context: dict = {
+        human_readable = tableToMarkdown(f'Symantec DLP incidents', incidents, removeNull=True)
+        entry_context = {
             'SymantecDLP': {
                 'Incident(val.ID === obj.ID)': incidents
             }
@@ -250,28 +154,31 @@ def list_incidents_command(client: Client, args: Dict) -> Tuple[str, Dict, Dict]
     return human_readable, entry_context, raw_response
 
 
-# TODO: Check multiple incidents issue
-# TODO: Check if needs to output to context - I don't think it's needed
 def update_incidents_command(client: Client, args: Dict) -> Tuple[str, Dict, Dict]:
     incident_id: str = args.get('incident_id', '')
-    incident_attributes: dict = {key: val for key, val in incident_attributes_transformer(args).items() if val}
-    batch_id: str = args.get('batch_id', '')
-
     # TODO: Check what is incidents attributes - dict, list, tuple? for now I treat it as a dict
-    # TODO: Check for the LongId issue - if needs a param that check for the version and than decides
+    incident_attributes: dict = {key: val for key, val in incident_attributes_transformer(args).items() if val}
+
     raw_incidents_update_response: dict = client.service.updateIncidents(
-        incident_id=incident_id,
         incidentLongId=incident_id,
         incidentAttributes=incident_attributes
     )
 
     human_readable: str
-    entry_context = dict()
-    raw_response = dict()
+    entry_context: dict = {}
+    raw_response: dict = {}
 
     if raw_incidents_update_response:
         incidents_update_response = helpers.serialize_object(raw_incidents_update_response)
-        human_readable: str = update_incidents_human_readable_output_generator(incidents_update_response)
+        headers: list = ['Batch ID', 'Inaccessible Incident Long ID', 'Inaccessible Incident ID', 'Status Code']
+        outputs = {
+            'Batch ID': incidents_update_response.get('batchId'),
+            'Inaccessible Incident Long ID': incidents_update_response.get('InaccessibleIncidentLongId'),
+            'Inaccessible Incident ID': incidents_update_response.get('InaccessibleIncidentId'),
+            'Status Code': incidents_update_response.get('statusCode')
+        }
+        human_readable = tableToMarkdown('Symantec DLP incidents {incident_id} update', outputs, headers=headers,
+                                         removeNull=True)
     else:
         human_readable = 'Update was not successful'
 
@@ -280,35 +187,47 @@ def update_incidents_command(client: Client, args: Dict) -> Tuple[str, Dict, Dic
 
 def incident_binaries_command(client: Client, args: Dict) -> Tuple[str, Dict, Dict]:
     incident_id: str = args.get('incident_id', '')
-    include_original_message: bool = bool(args.get('include_original_message')) if args.get('include_original_message')\
-        else None
-    include_all_components: bool = bool(args.get('include_all_components')) if args.get('include_all_components')\
-        else None
-    # TODO: Check for type of long in python
+    include_original_message: bool = bool(args.get('include_original_message', 'True'))
+    include_all_components: bool = bool(args.get('include_all_components', 'True'))
+
     try:
-        component_long_id: int = int(args.get('component_long_id')) if args.get('component_long_id') else None
-        component_id: int = int(args.get('component_id')) if args.get('component_id') else None
+        component_long_id = int(args.get('component_long_id'))  # type: ignore
     except ValueError:
         raise DemistoException('This value must be an integer.')
 
-    # TODO: What to do with all optional args
-    # TODO: Check for the LongId issue - if needs a param that check for the version and than decides
-    raw_incident_binaries: dict = client.service.incidentBinaries(
-        incident_id=incident_id,
-        incidentLongId=incident_id
-    )
+    if component_long_id:
+        raw_incident_binaries: dict = client.service.incidentBinaries(
+            incidentLongId=incident_id,
+            includeOriginalMessage=include_original_message,
+            includeAllComponents=include_all_components,
+            componentLongId=component_long_id
+        )
+    else:
+        raw_incident_binaries = client.service.incidentBinaries(
+            incidentLongId=incident_id,
+            includeOriginalMessage=include_original_message,
+            includeAllComponents=include_all_components,
+        )
 
     human_readable: str
-    entry_context = dict()
-    raw_response = dict()
+    entry_context: dict = {}
+    raw_response: dict = {}
 
     if raw_incident_binaries:
         serialized_incident_binaries = helpers.serialize_object(raw_incident_binaries)
         raw_response = serialized_incident_binaries
-        incident_binaries = {key: val for key, val in
-                             incident_binaries_context_transformer(serialized_incident_binaries).items() if val}
-        human_readable: str = incident_binaries_human_readable_output_generator(incident_binaries)
-        entry_context: dict = {
+        unfiltered_incident_binaries = {
+            'ID': raw_incident_binaries.get('incidentId'),
+            'OriginalMessage': raw_incident_binaries.get('originalMessage'),
+            'Component': parse_component(raw_incident_binaries.get('Component')),  # type: ignore
+            'LongID': raw_incident_binaries.get('incidentLongId')
+        }
+        incident_binaries = {key: val for key, val in unfiltered_incident_binaries.items() if val}
+        # TODO: Add headers to tableToMarkdown
+        human_readable = tableToMarkdown('Symantec DLP incident {incident_id} binaries', incident_binaries,
+                                         removeNull=True)
+        # TODO: Check if needs to output context standards
+        entry_context = {
             'SymantecDLP': {
                 'Incident(val.ID === obj.ID)': incident_binaries
             }
@@ -319,15 +238,15 @@ def incident_binaries_command(client: Client, args: Dict) -> Tuple[str, Dict, Di
     return human_readable, entry_context, raw_response
 
 
-def list_custom_attributes_command(client: Client, args: Dict) -> Tuple[str, Dict, Dict]:
+def list_custom_attributes_command(client: Client) -> Tuple[str, Dict, Dict]:
     raw_custom_attributes_list: dict = client.service.listCustomAttributes()
 
     human_readable: str
-    entry_context = dict()
-    raw_response = dict()
+    entry_context: dict = {}
+    raw_response: dict = {}
 
     if raw_custom_attributes_list:
-        custom_attributes_list = helpers.serialize_object()
+        custom_attributes_list = helpers.serialize_object(raw_custom_attributes_list)
         raw_response = custom_attributes_list
         human_readable = tableToMarkdown('Symantec DLP custom attributes', custom_attributes_list, removeNull=True)
     else:
@@ -336,15 +255,15 @@ def list_custom_attributes_command(client: Client, args: Dict) -> Tuple[str, Dic
     return human_readable, entry_context, raw_response
 
 
-def list_incident_status_command(client: Client, args: Dict) -> Tuple[str, Dict, Dict]:
+def list_incident_status_command(client: Client) -> Tuple[str, Dict, Dict]:
     raw_incident_status_list: dict = client.service.listIncidentStatus()
 
     human_readable: str
-    entry_context = dict()
-    raw_response = dict()
+    entry_context: dict = {}
+    raw_response: dict = {}
 
     if raw_incident_status_list:
-        incident_status_list = helpers.serialize_object()
+        incident_status_list = helpers.serialize_object(raw_incident_status_list)
         raw_response = incident_status_list
         human_readable = tableToMarkdown('Symantec DLP incident status', incident_status_list, removeNull=True)
     else:
@@ -353,31 +272,29 @@ def list_incident_status_command(client: Client, args: Dict) -> Tuple[str, Dict,
     return human_readable, entry_context, raw_response
 
 
-# TODO: Check if needs to output context standards
 def incident_violations_command(client: Client, args: Dict) -> Tuple[str, Dict, Dict]:
     incident_id: str = args.get('incident_id', '')
-    include_image_violations: bool = bool(args.get('include_image_violations')) \
-        if args.get('include_image_violations') else None
+    include_image_violations: bool = bool(args.get('include_image_violations', 'True'))
 
-    # TODO: What to do with all optional args
-    # TODO: Check for the LongId issue - if needs a param that check for the version and than decides
     raw_incident_violations = client.service.incidentViolations(
-        incidentId=incident_id,
         incidentLongId=incident_id,
+        includeImageViolations=include_image_violations
     )
 
     human_readable: str
-    entry_context = dict()
-    raw_response = dict()
+    entry_context: dict = {}
+    raw_response: dict = {}
 
     if raw_incident_violations:
         serialized_incident_violations = helpers.serialize_object(raw_incident_violations)
         raw_response = serialized_incident_violations
-        incident_violations: dict = {key: val for key, val
-                                     in incident_violations_context_transformer(serialized_incident_violations).items()
-                                     if val}
-        human_readable: str = incident_violations_human_readable_output_generator(incident_violations)
-        entry_context: dict = {
+        # TODO: Transform into context & filter empty values
+        incident_violations: dict = serialized_incident_violations
+        # TODO: Add headers to tableToMarkdown
+        human_readable = tableToMarkdown('Symantec DLP incident {incident_id} violations', incident_violations,
+                                         removeNull=True)
+        # TODO: Check if needs to output context standards
+        entry_context = {
             'SymantecDLP': {
                 'Incident(val.ID === obj.ID)': incident_violations
             }
@@ -386,6 +303,10 @@ def incident_violations_command(client: Client, args: Dict) -> Tuple[str, Dict, 
         human_readable = 'No incident status found.'
 
     return human_readable, entry_context, raw_response
+
+
+def fetch_incidents(client: Client, fetch_time: str, fetch_limit: int):
+    pass
 
 
 ''' COMMANDS MANAGER / SWITCH PANEL '''
@@ -397,6 +318,8 @@ def main():
     credentials: Dict = params.get('credentials', {})
     username: str = credentials.get('identifier', '')
     password: str = credentials.get('password', '')
+    fetch_time: str = params.get('fetch_time', '3 days').strip()
+    fetch_limit: int = int(params.get('fetch_limit', '10'))
     verify_ssl = not params.get('insecure', False)
     # proxy = params.get('proxy')
     wsdl: str = f'{server}/ProtectManager/services/v2011/incidents?wsdl'
@@ -411,7 +334,7 @@ def main():
     demisto.info(f'Command being called is {command}')
 
     commands = {
-        # 'fetch-incidents': fetch_incidents,
+        'fetch-incidents': fetch_incidents,
         'symantec-dlp-get-incident-details': get_incident_details_command,
         'symantec-dlp-list-incidents': list_incidents_command,
         'symantec-dlp-update-incidents': update_incidents_command,
@@ -422,11 +345,14 @@ def main():
     }
     try:
         if command == 'fetch-incidents':
-            commands[command](client)
+            commands['fetch-incidents'](client, fetch_time)  # type: ignore
         elif command == 'test-module':
             test_module()
+        elif command == 'symantec-dlp-list-incident-status' or command == 'symantec-dlp-list-custom-attributes':
+            human_readable, context, raw_response = commands[command](client)  # type: ignore
+            return_outputs(human_readable, context, raw_response)
         elif command in commands:
-            human_readable, context, raw_response = commands[command](client, demisto.args())
+            human_readable, context, raw_response = commands[command](client, demisto.args())  # type: ignore
             return_outputs(human_readable, context, raw_response)
     # Log exceptions
     except Exception as e:
