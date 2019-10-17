@@ -8,7 +8,6 @@ import requests
 import base64
 import os
 import json
-import base64
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 # Disable insecure warnings
@@ -102,6 +101,24 @@ def get_now_utc():
     return datetime.utcnow().strftime(DATE_FORMAT)
 
 
+def add_second_to_str_date(date_string, seconds=1):
+    added_result = datetime.strptime(date_string, DATE_FORMAT) + timedelta(seconds=seconds)
+    return datetime.strftime(added_result, DATE_FORMAT)
+
+
+def upload_file(filename, content, attachents_list):
+    file_result = fileResult(filename, content)
+
+    if file_result['Type'] == entryTypes['error']:
+        demisto.error(file_result['Contents'])
+        raise Exception(file_result['Contents'])
+
+    attachents_list.append({
+        'path': file_result['FileID'],
+        'name': file_result['File'],
+    })
+
+
 ''' COMMANDS + REQUESTS FUNCTIONS '''
 
 
@@ -110,7 +127,7 @@ class MsGraphClient(BaseClient):
     FILE_ATTACHMENT = '#microsoft.graph.fileAttachment'
 
     def __init__(self, tenant_id, auth_id, enc_key, token_retrieval_url, app_name, mailbox_to_fetch, folder_to_fetch,
-                 first_fetch_interval, *args, **kwargs):
+                 first_fetch_interval, emails_fetch_limit, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._tenant_id = tenant_id
         self._auth_id = auth_id
@@ -120,6 +137,7 @@ class MsGraphClient(BaseClient):
         self._folder_to_fetch = folder_to_fetch
         self._first_fetch_interval = first_fetch_interval
         self._app_name = app_name
+        self._emails_fetch_limit = emails_fetch_limit
 
     def _get_access_token(self):
         integration_context = demisto.getIntegrationContext()
@@ -252,10 +270,12 @@ class MsGraphClient(BaseClient):
             current_directory_level_folders = self._get_folder_children(user_id, found_folder.get('id', ''))
 
     def _fetch_last_emails(self, folder_id, last_fetch, exclude_ids):
+        target_received_time = add_second_to_str_date(last_fetch)
         suffix_endpoint = (f"users/{self._mailbox_to_fetch}/mailFolders/{folder_id}/messages"
-                           f"?$filter=ReceivedDateTime gt {last_fetch}&$orderby=ReceivedDateTime &$top=250&select=*")
+                           f"?$filter=receivedDateTime ge {target_received_time}"
+                           f"&$orderby=ReceivedDateTime &$top={self._emails_fetch_limit}&select=*")
         # check if has next in the pagging and do not take value first
-        fetched_emails = self._http_request('GET', suffix_endpoint).get('value', [])
+        fetched_emails = self._http_request('GET', suffix_endpoint).get('value', [])[:self._emails_fetch_limit]
 
         if exclude_ids:
             fetched_emails = [email for email in fetched_emails if email.get('id') not in exclude_ids]
@@ -264,8 +284,20 @@ class MsGraphClient(BaseClient):
         return fetched_emails, fetched_emails_ids
 
     @staticmethod
+    def _get_next_run_time(fetched_emails, start_time):
+        next_run_time = fetched_emails[-1].get('receivedDateTime') if fetched_emails else start_time
+
+        return next_run_time
+
+    @staticmethod
     def _get_recipient_address(email_address):
         return email_address.get('emailAddress', {}).get('address', '')
+
+    def _get_attachment_mime(self, attachment_id):
+        suffix_endpoint = f'users/{self._mailbox_to_fetch}/messages/{attachment_id}/$value'
+        mime_content = self._http_request('GET', suffix_endpoint, resp_type='text')
+
+        return mime_content
 
     def _get_email_attachments(self, message_id):
         attachment_results = []
@@ -274,30 +306,37 @@ class MsGraphClient(BaseClient):
 
         for attachment in attachments:
             attachment_type = attachment.get('@odata.type', '')
+            attachment_name = attachment.get('name', 'untitled_attachment')
             if attachment_type == self.FILE_ATTACHMENT:
-                attachment_name = attachment.get('name', 'untitled_attachment')
                 try:
-                    attachment_content = attachment.get('contentBytes', '')
-                except:
-                    # log the error
-                    pass
-                file_result = fileResult(attachment_name, attachment_content)
-
-                if file_result['Type'] == entryTypes['error']:
-                    demisto.error(file_result['Contents'])
-                    raise Exception(file_result['Contents'])
-
-                attachment_results.append({
-                    'path': file_result['FileID'],
-                    'name': file_result['File'],
-                })
+                    attachment_content = base64.b64decode(attachment.get('contentBytes', ''))
+                except Exception as e:
+                    # log the error/ add function try parse
+                    continue
+                upload_file(attachment_name, attachment_content, attachment_results)
             elif attachment_type == self.ITEM_ATTACHMENT:
-                pass
+                attachment_id = attachment.get('id', '')
+                mime_content = self._get_attachment_mime(attachment_id)
+                upload_file(f'{attachment_name}.eml', mime_content, attachment_results)
 
         return attachment_results
 
-    def _parse_email_as_labels(self):
-        pass
+    def _parse_email_as_labels(self, parsed_email):
+        labels = []
+
+        for (key, value) in parsed_email.items():
+            if key == 'Headers':
+                headers_labels = [
+                    {'type': 'Email/Header/{}'.format(header.get('name', '')), 'value': header.get('value', '')}
+                    for header in value]
+                labels.extend(headers_labels)
+            elif key in ['To', 'Cc', 'Bcc']:
+                recipients_labels = [{'type': f'Email/{key}', 'value': recipient} for recipient in value]
+                labels.extend(recipients_labels)
+            else:
+                labels.append({'type': f'Email/{key}', 'value': f'{value}'})
+
+        return labels
 
     def _parse_email_as_incident(self, email):
         parsed_email = {EMAIL_DATA_MAPPING[k]: v for (k, v) in email.items() if k in EMAIL_DATA_MAPPING}
@@ -319,13 +358,15 @@ class MsGraphClient(BaseClient):
 
         incident = {
             'type': parsed_email['Type'],
-            'name': '',
-            'details': '',
-            'labels': [],
-            'occurred': [],
-            'attachment': '',
+            'name': parsed_email['Subject'],
+            'details': email.get('bodyPreview', '') or parsed_email['Body'],
+            'labels': self._parse_email_as_labels(parsed_email),
+            'occurred': parsed_email['ReceivedTime'],
+            'attachment': parsed_email.get('Attachments', []),
             'rawJSON': json.dumps(parsed_email)
         }
+
+        return incident
 
     def fetch_incidents(self, last_run):
         start_time = get_now_utc()
@@ -340,8 +381,8 @@ class MsGraphClient(BaseClient):
         fetched_emails, fetched_emails_ids = self._fetch_last_emails(folder_id=folder_id, last_fetch=last_fetch,
                                                                      exclude_ids=exclude_ids)
         incidents = list(map(self._parse_email_as_incident, fetched_emails))
-        # set exclude ids to fetched_emails_ids
-        next_run = {'LAST_RUN_TIME': start_time}
+        next_run_time = MsGraphClient._get_next_run_time(fetched_emails, start_time)
+        next_run = {'LAST_RUN_TIME': next_run_time, 'LAST_RUN_IDS': fetched_emails_ids, 'LAST_RUN_FOLDER_ID': folder_id}
 
         return next_run, incidents
 
@@ -369,10 +410,12 @@ def main():
     mailbox_to_fetch = params.get('mailbox_to_fetch', '')
     folder_to_fetch = params.get('folder_to_fetch', 'Inbox')
     first_fetch_interval = params.get('first_fetch_interval', '15 minutes')
+    emails_fetch_limit = int(params.get('emails_fetch_limit', '50'))
 
     # TODO add ok_codes to client
     client = MsGraphClient(tenant_id, auth_id, enc_key, token_retrieval_url, app_name, mailbox_to_fetch,
-                           folder_to_fetch, first_fetch_interval, base_url=base_url, verify=verify, proxy=proxy)
+                           folder_to_fetch, first_fetch_interval, emails_fetch_limit, base_url=base_url, verify=verify,
+                           proxy=proxy)
 
     command = demisto.command()
     LOG(f'Command being called is {command}')

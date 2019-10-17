@@ -29,6 +29,10 @@ configuration:
   name: proxy
   required: false
   type: 8
+- display: Fetch incidents
+  name: isFetch
+  required: false
+  type: 8
 - display: Email address from which to fetch incidents  (e.g. "from:example@demisto.com")
   name: mailbox_to_fetch
   required: true
@@ -44,16 +48,23 @@ configuration:
   name: first_fetch_interval
   required: false
   type: 0
+- defaultvalue: '50'
+  display: Maximum number of emails to pull per fetch.
+  name: emails_fetch_limit
+  required: false
+  type: 0
 description: Microsoft Graph lets your app get authorized access to a user's Outlook
   mail data in a personal or organization account.
 display: Microsoft Graph Mail Listener And Sender
 name: MicrosoftGraphListener
 script:
   dockerimage: demisto/crypto:1.0.0.303
-  isfetch: false
+  isfetch: true
   longRunning: false
   longRunningPort: false
   runonce: false
   script: '-'
   type: python
   subtype: python3
+tests:
+  - No test
