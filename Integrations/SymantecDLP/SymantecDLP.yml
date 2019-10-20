@@ -36,6 +36,11 @@ configuration:
   name: saved_report_id
   required: false
   type: 0
+- defaultvalue: '10'
+  display: Fetch limit
+  name: fetch_limit
+  required: false
+  type: 0
 description: Symantec Data Loss Prevention Incident Reporting and Update
 display: Symantec Data Loss Prevention
 name: Symantec Data Loss Prevention
@@ -65,13 +70,98 @@ script:
     description: Returns a specified incident
     execution: false
     name: symantec-dlp-get-incident-details
+  - arguments:
+    - default: false
+      description: Incident ID to update.
+      isArray: false
+      name: incident_id
+      required: false
+      secret: false
+    - auto: PREDEFINED
+      default: false
+      description: TBD
+      isArray: false
+      name: severity
+      predefined:
+      - HIGH
+      - MEDIUM
+      - LOW
+      - INFO
+      required: false
+      secret: false
+    deprecated: false
+    execution: false
+    name: symantec-dlp-update-incidents
+  - arguments:
+    - default: false
+      description: Incident ID to get binaries of.
+      isArray: false
+      name: incident_id
+      required: false
+      secret: false
+    - auto: PREDEFINED
+      default: false
+      defaultValue: 'True'
+      description: TBD
+      isArray: false
+      name: include_original_message
+      predefined:
+      - 'True'
+      - 'False'
+      required: false
+      secret: false
+    - auto: PREDEFINED
+      default: false
+      defaultValue: 'True'
+      description: TBD
+      isArray: false
+      name: include_all_components
+      predefined:
+      - 'True'
+      - 'False'
+      required: false
+      secret: false
+    - default: false
+      description: TBD
+      isArray: false
+      name: component_long_id
+      required: false
+      secret: false
+    deprecated: false
+    execution: false
+    name: symantec-dlp-incident-binaries
   - deprecated: false
     execution: false
-    name: symantec-dlp-update-incident
+    name: symantec-dlp-list-custom-attributes
+  - deprecated: false
+    execution: false
+    name: symantec-dlp-list-incident-status
+  - arguments:
+    - default: false
+      description: TBD
+      isArray: false
+      name: incident_id
+      required: false
+      secret: false
+    - auto: PREDEFINED
+      default: false
+      defaultValue: 'True'
+      description: TBD
+      isArray: false
+      name: include_image_violations
+      predefined:
+      - 'True'
+      - 'False'
+      required: false
+      secret: false
+    deprecated: false
+    execution: false
+    name: symantec-dlp-incident-violations
   dockerimage: demisto/zeep:1.0.0.1281
-  isfetch: false
+  isfetch: true
   longRunning: false
   longRunningPort: false
   runonce: false
   script: '-'
   type: python
+  subtype: python3

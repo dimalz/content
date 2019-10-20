@@ -10,6 +10,7 @@ from zeep import helpers
 from zeep.cache import SqliteCache
 from datetime import datetime
 from typing import Dict, Tuple
+from dateutil.parser import parse
 import urllib3
 
 # Disable insecure warnings
@@ -26,6 +27,46 @@ class SymantecAuth(AuthBase):
             return self.basic(r)
         else:
             return r
+
+
+INCIDENT_MOCK_FIRST = {
+    'incidentId': 35379,
+    'statusCode': 'SUCCESS',
+    'incident': {
+        'incidentId': 35379,
+        'uniqueMessageId': '435F8684-A197-4042-879A-4C90E3C407DB',
+        'incidentCreationDate': '2018-12-18 12:32:10.197000+05:30',
+        'detectionDate': '2018-12-18 12:31:57.729000+05:30'
+    },
+    'incidentLongId': 35379
+}
+
+INCIDENT_MOCK_MID = {
+    'incidentId': 35380,
+    'statusCode': 'SUCCESS',
+    'incident': {
+        'incidentId': 35380,
+        'uniqueMessageId': '435F8684-A197-4042-879A-4C90E3C407DB',
+        'incidentCreationDate': '2019-10-18 12:32:10.197000+05:30',
+        'detectionDate': '2018-12-18 12:31:57.729000+05:30'
+    },
+    'incidentLongId': 35380
+}
+
+INCIDENT_MOCK_NEW = {
+    'incidentId': 35381,
+    'statusCode': 'SUCCESS',
+    'incident': {
+        'incidentId': 35381,
+        'uniqueMessageId': '435F8684-A197-4042-879A-4C90E3C407DB',
+        'incidentCreationDate': '2019-12-18 12:32:10.197000+05:30',
+        'detectionDate': '2018-12-18 12:31:57.729000+05:30'
+    },
+    'incidentLongId': 35381
+}
+
+INCIDENT_IDS_LIST_MOCK = [35379, 35380, 35381]
+INCIDENT_LIST_MOCK = [INCIDENT_MOCK_FIRST, INCIDENT_MOCK_MID, INCIDENT_MOCK_NEW]
 
 
 ''' HELPER FUNCTIONS '''
@@ -70,6 +111,7 @@ def parse_component(raw_components: list) -> list:
     return components
 
 
+
 def myconverter(o):
     if isinstance(o, datetime):
         return o.__str__()
@@ -89,7 +131,7 @@ def get_incident_details_command(client: Client, args: Dict) -> Tuple[str, Dict,
     incident_id: str = args.get('incident_id', '')
 
     raw_incident: Dict = client.service.incidentDetail(
-        incidentLongId=incident_id,
+        incidentId=incident_id,
         includeHistory=True,
         includeViolations=True
     )
@@ -102,7 +144,7 @@ def get_incident_details_command(client: Client, args: Dict) -> Tuple[str, Dict,
         serialized_incident = helpers.serialize_object(raw_incident[0])
         raw_response = serialized_incident
         # TODO: Transform into context & filter empty values
-        incident: dict = serialized_incident
+        incident: dict = json.loads(json.dumps(serialized_incident, default=myconverter))
         # TODO: Add headers to tableToMarkdown
         human_readable = tableToMarkdown('Symantec DLP incident {incident_id}', incident, removeNull=True)
         # TODO: Transform into context standards & filter empty values
@@ -125,7 +167,7 @@ def list_incidents_command(client: Client, args: Dict) -> Tuple[str, Dict, Dict]
     if not saved_report_id:
         raise ValueError('Missing saved report ID. Configure it in the integration instance settings.')
 
-    creation_date: datetime = parse_date_range(args.get('creation_date', '1 day'))[0]
+    creation_date = parse_date_range(args.get('creation_date', '1 day'))[0]
 
     raw_incidents = client.service.incidentList(
         savedReportId=saved_report_id,
@@ -160,7 +202,7 @@ def update_incidents_command(client: Client, args: Dict) -> Tuple[str, Dict, Dic
     incident_attributes: dict = {key: val for key, val in incident_attributes_transformer(args).items() if val}
 
     raw_incidents_update_response: dict = client.service.updateIncidents(
-        incidentLongId=incident_id,
+        incident=incident_id,
         incidentAttributes=incident_attributes
     )
 
@@ -191,20 +233,21 @@ def incident_binaries_command(client: Client, args: Dict) -> Tuple[str, Dict, Di
     include_all_components: bool = bool(args.get('include_all_components', 'True'))
 
     try:
-        component_long_id = int(args.get('component_long_id'))  # type: ignore
+        component_long_id_str: str = args.get('component_long_id')
+        component_long_id = int(component_long_id_str)  # type: ignore
     except ValueError:
         raise DemistoException('This value must be an integer.')
 
     if component_long_id:
         raw_incident_binaries: dict = client.service.incidentBinaries(
-            incidentLongId=incident_id,
+            incidentId=incident_id,
             includeOriginalMessage=include_original_message,
             includeAllComponents=include_all_components,
             componentLongId=component_long_id
         )
     else:
         raw_incident_binaries = client.service.incidentBinaries(
-            incidentLongId=incident_id,
+            incidentId=incident_id,
             includeOriginalMessage=include_original_message,
             includeAllComponents=include_all_components,
         )
@@ -248,7 +291,9 @@ def list_custom_attributes_command(client: Client) -> Tuple[str, Dict, Dict]:
     if raw_custom_attributes_list:
         custom_attributes_list = helpers.serialize_object(raw_custom_attributes_list)
         raw_response = custom_attributes_list
-        human_readable = tableToMarkdown('Symantec DLP custom attributes', custom_attributes_list, removeNull=True)
+        human_readable = tableToMarkdown('Symantec DLP custom attributes',
+                                         {'Custom Attributes': custom_attributes_list},
+                                         headers=['Custom Attributes'], removeNull=True)
     else:
         human_readable = 'No custom attributes found.'
 
@@ -265,7 +310,8 @@ def list_incident_status_command(client: Client) -> Tuple[str, Dict, Dict]:
     if raw_incident_status_list:
         incident_status_list = helpers.serialize_object(raw_incident_status_list)
         raw_response = incident_status_list
-        human_readable = tableToMarkdown('Symantec DLP incident status', incident_status_list, removeNull=True)
+        human_readable = tableToMarkdown('Symantec DLP incident status', {'Incident Status': incident_status_list},
+                                         headers=['Incident Status'], removeNull=True)
     else:
         human_readable = 'No incident status found.'
 
@@ -277,7 +323,7 @@ def incident_violations_command(client: Client, args: Dict) -> Tuple[str, Dict, 
     include_image_violations: bool = bool(args.get('include_image_violations', 'True'))
 
     raw_incident_violations = client.service.incidentViolations(
-        incidentLongId=incident_id,
+        incidentId=incident_id,
         includeImageViolations=include_image_violations
     )
 
@@ -305,8 +351,41 @@ def incident_violations_command(client: Client, args: Dict) -> Tuple[str, Dict, 
     return human_readable, entry_context, raw_response
 
 
-def fetch_incidents(client: Client, fetch_time: str, fetch_limit: int):
-    pass
+def fetch_incidents(client: Client, fetch_time: str, fetch_limit: int, last_run: dict):
+    if last_run and last_run.get('last_fetched_event_datetime'):
+        last_update_time = last_run['last_fetched_event_datetime']
+    else:
+        last_update_time = parse_date_range(fetch_time)[0]
+
+    incidents = []
+    saved_report_id: str = demisto.params().get('saved_report_id', '')
+    # incidents_ids: list = helpers.serialize_object(client.service.incidentList(
+    #     savedReportId=saved_report_id,
+    #     incidentCreationDateLaterThan=last_update_time
+    # )).get('incidentId', '')
+
+    incidents_ids: list = INCIDENT_IDS_LIST_MOCK
+
+    if incidents_ids:
+        for incident_id in incidents_ids:
+            if fetch_limit == 0:
+                break
+            fetch_limit -= 1
+            incidents.append({
+                'rawJSON': incident_id,
+                'name': f'Symantec DLP incident {incident_id}',
+                'occurred': ''
+            })
+        # An API call to retrive the last incident details and from it retrive it's creation time
+        # We assume that the incidents list is ordered by ID and bigger ID means bigger creation time
+        last_incident_id = incidents_ids[-1]
+        # last_update_time = parse(json.loads(json.dumps(helpers.serialize_object(client.service.incidentDetail(
+        #     incidentId=last_incident_id
+        # )), default=myconverter)).get('incident', {}).get('incidentCreationDate'))
+        incident_dict: dict = INCIDENT_LIST_MOCK[INCIDENT_IDS_LIST_MOCK.index(last_incident_id)]
+        last_update_time = parse(incident_dict.get('incident', {}).get('incidentCreationDate'))
+        demisto.setLastRun({'last_fetched_event_datetime': last_update_time})
+    demisto.incidents(incidents)
 
 
 ''' COMMANDS MANAGER / SWITCH PANEL '''
@@ -319,7 +398,11 @@ def main():
     username: str = credentials.get('identifier', '')
     password: str = credentials.get('password', '')
     fetch_time: str = params.get('fetch_time', '3 days').strip()
-    fetch_limit: int = int(params.get('fetch_limit', '10'))
+    try:
+        fetch_limit: int = int(params.get('fetch_limit', '10'))
+    except ValueError:
+        raise DemistoException('Value for fetch_limit must be an integer.')
+    last_run = demisto.getLastRun()
     verify_ssl = not params.get('insecure', False)
     # proxy = params.get('proxy')
     wsdl: str = f'{server}/ProtectManager/services/v2011/incidents?wsdl'
@@ -345,7 +428,8 @@ def main():
     }
     try:
         if command == 'fetch-incidents':
-            commands['fetch-incidents'](client, fetch_time)  # type: ignore
+            # TODO: check if possible to use demisto here and fetch incidents to return values
+            commands['fetch-incidents'](client, fetch_time, fetch_limit, last_run)  # type: ignore
         elif command == 'test-module':
             test_module()
         elif command == 'symantec-dlp-list-incident-status' or command == 'symantec-dlp-list-custom-attributes':
