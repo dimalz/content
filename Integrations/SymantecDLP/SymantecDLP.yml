@@ -59,6 +59,10 @@ script:
     description: Returns a list of incidents.
     execution: false
     name: symantec-dlp-list-incidents
+    outputs:
+    - contextPath: SymantecDLP.Incident.ID
+      description: The ID of the Incident
+      type: Number
   - arguments:
     - default: false
       description: Incident ID to get details of.
@@ -67,7 +71,7 @@ script:
       required: true
       secret: false
     deprecated: false
-    description: Returns a specified incident
+    description: Returns the details of a specified incident
     execution: false
     name: symantec-dlp-get-incident-details
   - arguments:
@@ -79,14 +83,70 @@ script:
       secret: false
     - auto: PREDEFINED
       default: false
-      description: TBD
+      description: Represents the severity level of the incident.
       isArray: false
       name: severity
       predefined:
-      - HIGH
-      - MEDIUM
-      - LOW
-      - INFO
+      - High
+      - Medium
+      - Low
+      - Info
+      required: false
+      secret: false
+    - default: false
+      description: |-
+        Represents the status value of the incident.
+        You define incident status values using the
+        Enforce Server administration console.
+      isArray: false
+      name: status
+      required: false
+      secret: false
+    - auto: PREDEFINED
+      default: false
+      description: |-
+        Represents the remediation status of an
+        incident.
+      isArray: false
+      name: remediation_status
+      predefined:
+      - BLOCKED
+      - CONTENT_REMOVED
+      - CUSTOM_ACTION_ON_EMAIL
+      - EMAIL_APPROVED
+      - EMAIL_BLOCKED
+      - EMAIL_MESSAGE_EXPUNGED
+      - EMAIL_QUARANTINED
+      - ENDPOINT_BLOCK
+      - ENDPOINT_NOTIFY
+      - ENDPOINT_FILE_QUARANTINED
+      - ENDPOINT_FILE_QUARANTINE_FAILED
+      - ENDPOINT_NOTIFY_CANCEL_ALLOW
+      - ENDPOINT_NOTIFY_CANCEL_BLOCK
+      - ENDPOINT_NOTIFY_CANCEL_TIMEOUT_ALLOW
+      - ENDPOINT_NOTIFY_CANCEL_TIMEOUT_BLOCK
+      - FLEX_RESPONSE_ERROR
+      - FLEX_RESPONSE_EXECUTED
+      - FLEX_RESPONSE_REQUESTED
+      - MESSAGE_MODIFIED
+      - PASSED
+      - PLACE_HOLDER_DO_NOT_USE
+      - PROTECT_FILE_COPIED
+      - PROTECT_FILE_DELETED
+      - PROTECT_FILE_QUARANTINED
+      - PROTECT_REMEDIATION_ERROR
+      - REST_ENCRYTPED
+      - REST_PERFORMED_DRM
+      - REST_PERFORMED_BREAK_LINKS
+      - REST_PERFORMED_CUSTOM_ACTION
+      required: false
+      secret: false
+    - default: false
+      description: |-
+        Represents the remediation location of the
+        incident. Values can be user-defined.
+      isArray: false
+      name: remediation_location
       required: false
       secret: false
     deprecated: false
@@ -102,7 +162,8 @@ script:
     - auto: PREDEFINED
       default: false
       defaultValue: 'True'
-      description: TBD
+      description: Indicates whether the Web Service should include the original message
+        in the response document.
       isArray: false
       name: include_original_message
       predefined:
@@ -113,7 +174,8 @@ script:
     - auto: PREDEFINED
       default: false
       defaultValue: 'True'
-      description: TBD
+      description: Indicates whether the Web Service should include all message components
+        (for example, headers and file attachments) in the response document.
       isArray: false
       name: include_all_components
       predefined:
@@ -121,24 +183,37 @@ script:
       - 'False'
       required: false
       secret: false
-    - default: false
-      description: TBD
-      isArray: false
-      name: component_long_id
-      required: false
-      secret: false
     deprecated: false
     execution: false
     name: symantec-dlp-incident-binaries
+    outputs:
+    - contextPath: SymantecDLP.Incident.ID
+      description: The ID of the incident.
+      type: Number
+    - contextPath: SymantecDLP.Incident.LongID
+      description: The long ID of the incident.
+      type: Number
+    - contextPath: SymantecDLP.Incident.Component
+      description: The component list of the incident.
+      type: String
+    - contextPath: SymantecDLP.Incident.OriginalMessage
+      description: The original message of the incident.
+      type: String
   - deprecated: false
+    description: |-
+      Returns a list of all custom attribute names defined in
+      the Symantec DLP deployment.
     execution: false
     name: symantec-dlp-list-custom-attributes
   - deprecated: false
+    description: |-
+      Returns a list of the custom status values defined in the
+      Symantec DLP deployment.
     execution: false
     name: symantec-dlp-list-incident-status
   - arguments:
     - default: false
-      description: TBD
+      description: The ID of the incident.
       isArray: false
       name: incident_id
       required: false
@@ -146,7 +221,8 @@ script:
     - auto: PREDEFINED
       default: false
       defaultValue: 'True'
-      description: TBD
+      description: Specifies whether image violations should be included in the Incident
+        Violations Response.
       isArray: false
       name: include_image_violations
       predefined:
@@ -155,6 +231,7 @@ script:
       required: false
       secret: false
     deprecated: false
+    description: Returns the highlighted matches for a specific incident.
     execution: false
     name: symantec-dlp-incident-violations
   dockerimage: demisto/zeep:1.0.0.1281
