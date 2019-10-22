@@ -35,17 +35,50 @@ class SymantecAuth(AuthBase):
 
 def incident_attributes_transformer(attributes: dict) -> dict:
     """
-    This function transforms the demisto args entered by the user into a dict representing the attributes
+    Transforms the demisto args entered by the user into a dict representing the attributes
     of the updated incidents
     :param attributes: the demisto args dict
     :return: the attributes dict by the API design
     """
     # TODO: Check for IncidentNote, CustomAttribute, DataOwner
-    # TODO: Check if remediation status values are Capitalize of UpperCase
-    # TODO: Check if IncidentNote expects a dict
+    # TODO: Check if remediation status values are Capitalize or UpperCase
+
+    # Verify Custom Attribute
+    custom_attribute_name: str = attributes.get('custom_attribute_name', '')
+    custom_attribute_value: str = attributes.get('custom_attribute_value', '')
+    if custom_attribute_name and not custom_attribute_value or custom_attribute_value and not custom_attribute_name:
+        raise DemistoException("If updating an incident's custom attribute,"
+                               " both custom_attribute_name and custom_attribute_value must be provided.")
+
+    # Verify Data Owner
+    data_owner_name: str = attributes.get('data_owner_name', '')
+    data_owner_email: str = attributes.get('data_owner_email', '')
+    if data_owner_name and not data_owner_email or data_owner_email and not data_owner_name:
+        raise DemistoException("If updating an incident's custom attribute,"
+                               " both data_owner_name and data_owner_email must be provided.")
+
+    # Verify Note
+    note: str = attributes.get('note', '')
+    note_time_str: str = attributes.get('note_time', '')
+    note_time = None
+    if note_time_str:
+        note_time = parse(note_time_str)
+    if note and not note_time or note_time and not note:
+        raise DemistoException("If adding an incident's note, both note and note_time must be provided.")
+
     return {
         'IncidentSeverity': attributes.get('severity'),
         'IncidentsStatus': attributes.get('status'),
+        'IncidentNode': {
+            'dateAndTime': note_time,
+            'note': note
+        },
+        'CustomAttribute': {
+            f'{custom_attribute_name}': custom_attribute_value
+        },
+        'DataOwner': {
+            f'{data_owner_name}': data_owner_email
+        },
         'RemediationStatus': attributes.get('remediation_status'),
         'RemediationLocation': attributes.get('remediation_location')
     }
@@ -53,7 +86,7 @@ def incident_attributes_transformer(attributes: dict) -> dict:
 
 def parse_component(raw_components: list) -> list:
     """
-    This function parses a list of components into a list of context data
+    Parses a list of components into a list of context data
     :param raw_components: the components list before parsing
     :return: the parsed list
     """
@@ -72,7 +105,12 @@ def parse_component(raw_components: list) -> list:
     return components
 
 
-def datetime_to_iso_format(obj):
+def datetime_to_iso_format(obj: any):
+    """
+    Converts a datetime object into an ISO string representation
+    :param obj: Any type of object
+    :return: If the object is of type datetime the return is it's ISO string representation
+    """
     if isinstance(obj, datetime):
         return obj.isoformat()
 
@@ -80,10 +118,14 @@ def datetime_to_iso_format(obj):
 ''' COMMANDS + REQUESTS FUNCTIONS '''
 
 
-def test_module():
+def test_module(client: Client, saved_report_id: int):
     """
     Performs basic get request to get item samples
     """
+    helpers.serialize_object(client.service.incidentList(
+        savedReportId=saved_report_id,
+        incidentCreationDateLaterThan=parse_date_range('1 year')
+    ))
     demisto.results('ok')
 
 
@@ -100,7 +142,7 @@ def get_incident_details_command(client: Client, args: Dict) -> Tuple[str, Dict,
     entry_context: dict = {}
     raw_response: dict = {}
 
-    if raw_incident:
+    if raw_incident and isinstance(raw_incident, list):
         serialized_incident = helpers.serialize_object(raw_incident[0])
         raw_response = serialized_incident
         # TODO: Transform into context & filter empty values
@@ -122,8 +164,7 @@ def get_incident_details_command(client: Client, args: Dict) -> Tuple[str, Dict,
     return human_readable, entry_context, raw_response
 
 
-def list_incidents_command(client: Client, args: Dict) -> Tuple[str, Dict, Dict]:
-    saved_report_id: str = demisto.params().get('saved_report_id', '')
+def list_incidents_command(client: Client, args: Dict, saved_report_id: str) -> Tuple[str, Dict, Dict]:
     if not saved_report_id:
         raise ValueError('Missing saved report ID. Configure it in the integration instance settings.')
 
@@ -160,7 +201,7 @@ def update_incidents_command(client: Client, args: Dict) -> Tuple[str, Dict, Dic
     incident_id: str = args.get('incident_id', '')
     incident_attributes: dict = {key: val for key, val in incident_attributes_transformer(args).items() if val}
 
-    # This is by design of the contributor
+    # TODO: Check for the batch ID generation
     raw_incidents_update_response: dict = client.service.updateIncidents(
         updateBatch={
             'batchId': str(random.randint(11111, 99999)),
@@ -190,6 +231,7 @@ def update_incidents_command(client: Client, args: Dict) -> Tuple[str, Dict, Dic
     return human_readable, entry_context, raw_response
 
 
+# TODO: Check for the component issue
 def incident_binaries_command(client: Client, args: Dict) -> Tuple[str, Dict, Dict]:
     incident_id: str = args.get('incident_id', '')
     include_original_message: bool = bool(args.get('include_original_message', 'True'))
@@ -215,10 +257,18 @@ def incident_binaries_command(client: Client, args: Dict) -> Tuple[str, Dict, Di
             'LongID': raw_incident_binaries.get('incidentLongId')
         }
         incident_binaries = {key: val for key, val in unfiltered_incident_binaries.items() if val}
-        # TODO: Add headers to tableToMarkdown
-        human_readable = tableToMarkdown('Symantec DLP incident {incident_id} binaries', incident_binaries,
-                                         removeNull=True)
-        # TODO: Check if needs to output context standards
+
+        # TODO: Check for component issue - if component is a list how will it be shown in war-room
+        raw_headers = ['ID', 'OriginalMessage', 'Component', 'LongID']
+        headers = ['ID', 'Original Message', 'Component', 'Long ID']
+        incident_binaries_output: dict = {}
+        for raw_header in raw_headers:
+            if incident_binaries.get(raw_header):
+                incident_binaries_output[headers[raw_headers.index(raw_header)]] = incident_binaries.get(raw_header)
+        human_readable = tableToMarkdown('Symantec DLP incident {incident_id} binaries', incident_binaries_output,
+                                         headers=headers, removeNull=True)
+
+        # TODO: Check if needs to output context standards - data inside component
         entry_context = {
             'SymantecDLP': {
                 'Incident(val.ID === obj.ID)': incident_binaries
@@ -237,6 +287,7 @@ def list_custom_attributes_command(client: Client) -> Tuple[str, Dict, Dict]:
     entry_context: dict = {}
     raw_response: dict = {}
 
+    # TODO: Check how the output looks in war-room
     if raw_custom_attributes_list:
         custom_attributes_list = helpers.serialize_object(raw_custom_attributes_list)
         raw_response = custom_attributes_list
@@ -300,7 +351,8 @@ def incident_violations_command(client: Client, args: Dict) -> Tuple[str, Dict, 
     return human_readable, entry_context, raw_response
 
 
-def fetch_incidents(client: Client, fetch_time: str, fetch_limit: int, last_run: dict):
+def fetch_incidents(client: Client, fetch_time: str, fetch_limit: int, last_run: dict, saved_report_id: str):
+    # We use parse to get out time in datetime format and not iso, that's what Symantec DLP is expecting to get
     if last_run and last_run.get('last_fetched_event_iso'):
         last_update_time = parse(last_run['last_fetched_event_iso'])
     else:
@@ -308,7 +360,6 @@ def fetch_incidents(client: Client, fetch_time: str, fetch_limit: int, last_run:
 
     incidents = []
 
-    saved_report_id: str = demisto.params().get('saved_report_id', '')
     incidents_ids: list = helpers.serialize_object(client.service.incidentList(
         savedReportId=saved_report_id,
         incidentCreationDateLaterThan=last_update_time
@@ -327,10 +378,10 @@ def fetch_incidents(client: Client, fetch_time: str, fetch_limit: int, last_run:
         # An API call to retrive the last incident details and from it retrive it's creation time
         # We assume that the incidents list is ordered by ID and bigger ID means bigger creation time
         last_incident_id = incidents_ids[-1]
-        last_update_time = json.loads(json.dumps(helpers.serialize_object(client.service.incidentDetail(
+        last_incident_time = json.loads(json.dumps(helpers.serialize_object(client.service.incidentDetail(
             incidentId=last_incident_id
-        )[0], default=datetime_to_iso_format)).get('incident', {}).get('incidentCreationDate'))
-        demisto.setLastRun({'last_fetched_event_iso': last_update_time})
+        )[0]), default=datetime_to_iso_format)).get('incident', {}).get('incidentCreationDate')
+        demisto.setLastRun({'last_fetched_event_iso': last_incident_time})
 
     demisto.incidents(incidents)
 
@@ -350,7 +401,9 @@ def main():
         fetch_limit: int = int(params.get('fetch_limit', '10'))
     except ValueError:
         raise DemistoException('Value for fetch_limit must be an integer.')
-    last_run = demisto.getLastRun()
+    saved_report_id: str = demisto.params().get('saved_report_id', '')
+    last_run: dict = demisto.getLastRun()
+    args: dict = demisto.args()
     verify_ssl = not params.get('insecure', False)
     # proxy = params.get('proxy')
     wsdl: str = f'{server}/ProtectManager/services/v2011/incidents?wsdl'
@@ -365,6 +418,7 @@ def main():
     demisto.info(f'Command being called is {command}')
 
     commands = {
+        'test-module': test_module,
         'fetch-incidents': fetch_incidents,
         'symantec-dlp-get-incident-details': get_incident_details_command,
         'symantec-dlp-list-incidents': list_incidents_command,
@@ -376,14 +430,17 @@ def main():
     }
     try:
         if command == 'fetch-incidents':
-            commands['fetch-incidents'](client, fetch_time, fetch_limit, last_run)  # type: ignore
+            commands[command](client, fetch_time, fetch_limit, last_run, saved_report_id)  # type: ignore
         elif command == 'test-module':
-            test_module()
+            commands[command](client, saved_report_id)  # type: ignore
+        elif command == 'symantec-dlp-list-incidents':
+            human_readable, context, raw_response = commands[command](client, args, saved_report_id)  # type: ignore
+            return_outputs(human_readable, context, raw_response)
         elif command == 'symantec-dlp-list-incident-status' or command == 'symantec-dlp-list-custom-attributes':
             human_readable, context, raw_response = commands[command](client)  # type: ignore
             return_outputs(human_readable, context, raw_response)
         elif command in commands:
-            human_readable, context, raw_response = commands[command](client, demisto.args())  # type: ignore
+            human_readable, context, raw_response = commands[command](client, args)  # type: ignore
             return_outputs(human_readable, context, raw_response)
     # Log exceptions
     except Exception as e:

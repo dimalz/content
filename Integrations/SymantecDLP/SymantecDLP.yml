@@ -149,6 +149,42 @@ script:
       name: remediation_location
       required: false
       secret: false
+    - default: false
+      description: The custom attribute's name.
+      isArray: false
+      name: custom_attribute_name
+      required: false
+      secret: false
+    - default: false
+      description: The custom attribute's value.
+      isArray: false
+      name: custom_attribute_value
+      required: false
+      secret: false
+    - default: false
+      description: The data owner's name.
+      isArray: false
+      name: data_owner_name
+      required: false
+      secret: false
+    - default: false
+      description: The data owner's email.
+      isArray: false
+      name: data_owner_email
+      required: false
+      secret: false
+    - default: false
+      description: The note to be added.
+      isArray: false
+      name: note
+      required: false
+      secret: false
+    - default: false
+      description: The time of the note.
+      isArray: false
+      name: note_time
+      required: false
+      secret: false
     deprecated: false
     execution: false
     name: symantec-dlp-update-incidents
